@@ -274,9 +274,6 @@ int wildcard_match(char* wildcard_domain, char* domain) {
 	  wildcard_split = strtok(NULL, s);
 	  wildcard_size++;
 	}
-
-
-
 	/* get the first token */
 	domain_split = strtok(domain_split, s);
 

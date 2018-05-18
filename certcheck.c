@@ -51,8 +51,14 @@
 #define CYA   	"\x1b[36m"
 #define RES   	"\x1b[0m"
 
-#define WILDCARD "*"
+#define WILDCARD '*'
+#define COMMA ','
+#define LABEL_SEPARATOR '.'
 #define TEST_DIR "./sample_certs/"
+
+#define SAN "X509v3 Subject Alternative Name"
+
+#define PRINT_LINE printf("----------------------------------------------\n");
 
 #define TRUE 1
 #define FALSE 0
@@ -73,7 +79,9 @@ int check_time(X509_CINF *info);
 int contains_wildcard(char* domain);
 int wildcard_match(char* wildcard_domain, char* domain);
 int check_subject(X509 *cert, char* domain);
-int check_domain(X509 *cert, char* domain);
+int check_domains(char* alt_names, char* domain);
+int check_SAN(X509 *cert, char* domain);
+char *remove_comma(char *str);
 
 int main(int argc, const char *argv[])
 {
@@ -106,7 +114,7 @@ int main(int argc, const char *argv[])
 	    path = (char *)safe_malloc(sizeof(char) 
 	    	* (strlen(certificate_path) + strlen(TEST_DIR)));
 	    sprintf(path, "%s%s", TEST_DIR, certificate_path);
-
+		PRINT_LINE;
 	    printf(GRE "Read in: %s vs %s\n" RES, path, domain);
 	    if (!(BIO_read_filename(certificate_bio, path)))
 	    {
@@ -132,17 +140,21 @@ int main(int argc, const char *argv[])
 	    if(!check_time(cert_inf)) {
 	    	valid = FALSE;
 	    }
-
-		if(!check_subject(cert, domain)) {
-			valid = FALSE;
-		};
-
-	    // Now check our domain name (as well as SAN)
-	    if(!check_domain(cert, domain)) {
-	    	valid = FALSE;
+	    // Now check our subject alt domain names
+	    // If there isn't a SAN provided, fallback to the original subject CN
+	    if(!check_SAN(cert, domain)) {
+			if(!check_subject(cert, domain)) {
+				valid = FALSE;
+			};
 	    }
 
 
+	    if(valid) {
+	    	printf(YEL "\nThis certificate is valid!\n\n" RES);
+	    }
+	    else {
+	    	printf(RED "\nThis certificate is not valid.\n\n" RES);
+	    }
 
 		output = (char *)safe_malloc(sizeof(char) 
 	    	* (strlen(certificate_path)+strlen(domain)+4));
@@ -223,63 +235,125 @@ int check_subject(X509 *cert, char* domain) {
 
     ASN1_STRING *subject_domain;
     char *subject_domain_str = safe_malloc(sizeof(char) * strlen(domain));
-    char *stripped_domain = safe_malloc(sizeof(char) * strlen(domain));
 	X509_NAME_ENTRY *e;
 
 	printf("Checking subject domain...\n");
 	e = X509_NAME_get_entry(subject_issuer, 5);
 	subject_domain = X509_NAME_ENTRY_get_data(e);
 	ASN1_STRING_print_ex_fp(stdout, subject_domain, 1);
-	printf("\n");
+	printf("\n\n");
 
-	subject_domain_str = ASN1_STRING_data(subject_domain);
+	subject_domain_str = (char *)ASN1_STRING_data(subject_domain);
 	if (contains_wildcard(subject_domain_str)) {
 		return wildcard_match(subject_domain_str, domain);
 	}
 	else {
 		if (strcmp(subject_domain_str, domain) != 0) {
-			printf(RED "%s and %s are not the same!\n" RES, subject_domain_str, domain);
+			printf(RED "%s and %s are not the same!\n\n" RES, subject_domain_str, domain);
+			return FALSE;
 		}
 		else{
-			printf(GRE "%s and %s are the same!\n" RES, subject_domain_str, domain);
+			printf(GRE "%s and %s are the same!\n\n" RES, subject_domain_str, domain);
+			return TRUE;
 		}
 	}	
 }
 
+int check_domains(char* alt_names, char* domain) {
+
+	printf("Checking domains %s\n", alt_names);
+
+	const char s[5] = "DNS:";
+	char *alt_names_split;
+	char *domain_test = safe_malloc(sizeof(char)*strlen(domain));
+	int alt_names_len = 0;
+	int valid = TRUE;
+	size_t last_char = 0;
+
+	/* get the first token */
+	alt_names_split = strtok(alt_names, "DNS:");
+
+	/* walk through other tokens */
+	while(alt_names_split != NULL) {
+		
+		domain_test = remove_comma(alt_names_split);
+
+		printf("Domain %d: %s\n", alt_names_len, domain_test);
+
+		if (contains_wildcard(domain_test)) {
+			valid = wildcard_match(domain_test, domain);
+		}
+		else {
+			if (strcmp(domain_test, domain) != 0) {
+				printf(RED "%s and %s are not the same!\n" RES, domain_test, domain);
+				valid = FALSE;
+			}
+			else{
+				printf(GRE "%s and %s are the same!\n" RES, domain_test, domain);
+			}
+		}
+
+		alt_names_split = strtok(NULL, s);
+		alt_names_len++;
+	}
+
+	return valid;
+
+}
+
+char *remove_comma(char *str) {
+	printf("Removing comma of %s...", str);
+	char *cpy_str = safe_malloc(sizeof(char)*strlen(str));
+	char *new_str = safe_malloc(sizeof(char)*strlen(str));
+	int new_str_len = 0;
+
+	strcpy(cpy_str, str);
+	for (int i = 0; i < strlen(cpy_str); i++) {
+		if (cpy_str[i] != COMMA) {
+			new_str[new_str_len] = cpy_str[i];
+			printf("%c", new_str[new_str_len]);
+			new_str_len++;
+		}
+	}
+	return new_str;
+}
+
 int contains_wildcard(char* domain) {
 	// This function checks if the domain has a wildcard inside
-	for (int i = 0; i < strlen(domain); i++) {
+	printf("Checking %s for wildcards...\n", domain);
+	for (int i = 0; i < strlen(domain) && domain[i] != LABEL_SEPARATOR; i++) {
 		if (domain[i] == WILDCARD) {
+			printf("Wildcard found!\n\n");
 			return TRUE;
 		}
 	}
+	printf(RED "No wildcards, continue checking subject domain\n\n");
 	return FALSE;
 }
 
 int wildcard_match(char* wildcard_domain, char* domain) {
 	// This function matches a wildcard domain against a normal domain
-   const char s[2] = ".";
-   char *wildcard_split;
-   int wildcard_size = 0;
-   char *domain_split;
-   int domain_size = 0;
+	printf("Matching wildcard...\n");
+	const char s[2] = ".";
+	char *wildcard_split;
+	int wildcard_size = 0;
+	char *domain_split;
+	int domain_size = 0;
 
 	/* get the first token */
 	wildcard_split = strtok(wildcard_domain, s);
 
 	/* walk through other tokens */
 	while(wildcard_split != NULL) {
-	  printf(" %s\n", wildcard_split);
 
 	  wildcard_split = strtok(NULL, s);
 	  wildcard_size++;
 	}
 	/* get the first token */
-	domain_split = strtok(domain_split, s);
+	domain_split = strtok(domain, s);
 
 	/* walk through other tokens */
 	while(domain_split != NULL) {
-	  printf(" %s\n", domain_split);
 
 	  domain_split = strtok(NULL, s);
 	  domain_size++;
@@ -287,8 +361,9 @@ int wildcard_match(char* wildcard_domain, char* domain) {
 
 	if (wildcard_size != domain_size) {
 		return FALSE;
-	} 
+	}
 	return TRUE;
+
 	// for (int sector = 0; sector < wildcard_size; sector++) {
 	// 	int wild_count = 0;
 	// 	for (int chr = 0; chr < strlen(wildcard_split[sector]); chr++) {
@@ -306,19 +381,34 @@ int wildcard_match(char* wildcard_domain, char* domain) {
 }
 
 
-int check_domain(X509 *cert, char* domain) {
+int check_SAN(X509 *cert, char* domain) {
 	// This function checks if the domain name is valid
 
+	printf(CYA "Checking SAN names...\n" RES);
     int valid = TRUE;
+    int ext_index = 0;
 
-    
+    // Check if any SANs exist. If they do, check each domain.
+    ext_index = X509_get_ext_by_NID(cert, NID_subject_alt_name, -1);
+    printf("Index for SAN: %d\n", ext_index);
+    if (ext_index < 0) {
+    	printf(GRE "No SANs to check\n" RES);
+    	return FALSE;
+    }
 
-    X509_EXTENSION *ex = X509_get_ext(cert, X509_get_ext_by_NID(cert, NID_subject_key_identifier, -1));
+    // Otherwise, get our SANs
+    X509_EXTENSION *ex = X509_get_ext(cert, X509_get_ext_by_NID(cert, NID_subject_alt_name, -1));
     ASN1_OBJECT *obj = X509_EXTENSION_get_object(ex);
     char buff[1024];
     OBJ_obj2txt(buff, 1024, obj, 0);
-    printf("Extension:%s\n", buff);
+    
+    // Check we have the correct extention
+    if (strcmp(buff, SAN) != 0) {
+    	printf(RED "Incorrect extension given.\n" RES);
+    	return FALSE;
+    }
 
+    // Get our extension value
     BUF_MEM *bptr = NULL;
     char *buf = NULL;
 
@@ -327,6 +417,7 @@ int check_domain(X509 *cert, char* domain) {
     {
         fprintf(stderr, "Error in reading extensions");
     }
+
     BIO_flush(bio);
     BIO_get_mem_ptr(bio, &bptr);
 
@@ -335,11 +426,11 @@ int check_domain(X509 *cert, char* domain) {
     memcpy(buf, bptr->data, bptr->length);
     buf[bptr->length] = '\0';
 
-    //Can print or parse value
-    printf("%s\n", buf);
+    //Parse our SANs and check each domain
+    valid = check_domains(buf, domain);
     
     BIO_free_all(bio);
     free(buf);
 
-    return 0;
+    return valid;
 }

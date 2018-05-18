@@ -87,11 +87,9 @@ int main(int argc, const char *argv[])
 {
     BIO *certificate_bio = NULL;
     X509 *cert = NULL;
-    X509_NAME *cert_issuer = NULL;
 
     X509_CINF *cert_inf = NULL;
     int valid = TRUE;
-    STACK_OF(X509_EXTENSION) * ext_list;
 
     // To read in our CSV
     FILE *in = fopen(argv[1], "r");
@@ -156,11 +154,10 @@ int main(int argc, const char *argv[])
 	    	printf(RED "\nThis certificate is not valid.\n\n" RES);
 	    }
 
-		output = (char *)safe_malloc(sizeof(char) 
-	    	* (strlen(certificate_path)+strlen(domain)+4));
+		output = (char *)safe_malloc(sizeof(char) * (strlen(certificate_path)+strlen(domain)+4));
 
 		sprintf(output, "%s,%s,%d\n", certificate_path, domain, valid);
-	    fprintf(out, output);
+	    fprintf(out, "%s", output);
 
 	    memset(domain, 0, 256);
 	    memset(certificate_path, 0, 256);
@@ -170,8 +167,10 @@ int main(int argc, const char *argv[])
     // End of Example code
     //*********************
 
-	BIO_free_all(certificate_bio);
+	free(path);
+	free(output);
 	X509_free(cert);
+	BIO_free_all(certificate_bio);
     fclose(in);
     fclose(out);
     exit(0);
@@ -184,6 +183,7 @@ int check_time(X509_CINF *info) {
 	const ASN1_TIME *valid_from;
 	const ASN1_TIME *valid_to;
 	int diff_day, diff_sec;
+	int valid = TRUE;
 
 	// Get our validity dates
 	valid_from = info->validity->notBefore;
@@ -212,7 +212,7 @@ int check_time(X509_CINF *info) {
  	}
  	if (diff_day < 0 || diff_sec < 0) {
  		printf(RED "This certificate's notbefore date is not valid\n" RES);
- 		return FALSE;
+ 		valid = FALSE;
  	}
 
  	// Check if we are before the due date
@@ -222,11 +222,11 @@ int check_time(X509_CINF *info) {
  	}
  	if (diff_day < 0 || diff_sec < 0) {
  		printf(RED "This certificate's notafter date is not valid\n" RES);
- 		return FALSE;
+ 		valid = FALSE;
  	}
 
 	printf(GRE "This certificate's date is valid!\n\n" RES);
-	return TRUE;
+	return valid;
 }
 
 int check_subject(X509 *cert, char* domain) {
@@ -268,7 +268,6 @@ int check_domains(char* alt_names, char* domain) {
 	char *domain_test = safe_malloc(sizeof(char)*strlen(domain));
 	int alt_names_len = 0;
 	int valid = TRUE;
-	size_t last_char = 0;
 
 	/* get the first token */
 	alt_names_split = strtok(alt_names, "DNS:");
@@ -315,6 +314,8 @@ char *remove_comma(char *str) {
 			new_str_len++;
 		}
 	}
+	new_str[new_str_len] = '\0';
+	free(cpy_str);
 	return new_str;
 }
 

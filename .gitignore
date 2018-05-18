@@ -1,6 +1,7 @@
 
 # Created by https://www.gitignore.io/api/c
 
+certcheck
 certexample
 sample_output.csv
 

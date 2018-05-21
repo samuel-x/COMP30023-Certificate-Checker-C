@@ -1,4 +1,4 @@
-/*  Computer Systems COMP30023 Part A
+/*  Computer Systems COMP30023 Part B
 *   name: Samuel Xu 
 *   studentno: #835273
 *   email: samuelx@student.unimelb.edu.au
@@ -33,6 +33,7 @@
 *
 */
 
+// Import our Libraries
 #include <openssl/x509.h>
 #include <openssl/x509v3.h>
 #include <openssl/bio.h>
@@ -43,34 +44,36 @@
 #include <string.h>
 #include <time.h>
 
-#define RED     "\x1b[31m"
-#define GRE   	"\x1b[32m"
-#define YEL  	"\x1b[33m"
-#define BLU    	"\x1b[34m"
-#define MAG 	"\x1b[35m"
-#define CYA   	"\x1b[36m"
-#define RES   	"\x1b[0m"
-
+// Define some character constants
 #define WILDCARD '*'
 #define SPACE ' '
 #define COMMA ','
 #define LABEL_SEPARATOR '.'
-#define TEST_DIR "./sample_certs/"
+#define COMMA_STR ","
+#define DNS_SEPARATOR "DNS:"
+#define DOT_STR "."
+
+// Define our numeric constants
 #define RSA_LENGTH 2048
 #define BITS 8
 #define CA_PRUNE 3
+#define BUFFER_SIZE 256
+#define SUFFIX_SIZE 4
+#define CA_LEN 10
+#define START_DOMAIN 0
 
+// Define our extension names for checking
 #define BASICCONSTRAINTS "X509v3 Basic Constraints"
 #define EXTUSAGE "X509v3 Extended Key Usage"
 #define SAN "X509v3 Subject Alternative Name"
 #define TLS "TLS Web Server Authentication"
 
-#define PRINT_LINE printf("----------------------------------------------\n");
-
+// Define True and False values
 #define TRUE 1
 #define FALSE 0
 #define TRUE_STR "TRUE"
 #define FALSE_STR "FALSE"
+
 
 static void *safe_malloc(size_t size) {
     // This malloc checks if a malloc has completed successfully before
@@ -89,27 +92,28 @@ int contains_wildcard(char* domain);
 int wildcard_match(char* wildcard_domain, char* domain);
 int check_subject(X509 *cert, char* domain);
 int check_RSA_length(X509 *cert);
+int compare_domain(char* cert_domain, char* domain);
 int check_domains(char* alt_names, char* domain);
 int check_SAN(X509 *cert, char* domain);
 int check_basic_constraints(X509 *cert);
 int check_TLS(X509 *cert);
 char *remove_comma(char *str);
+char *get_ext_string(X509 *cert, int nid);
 
 int main(int argc, const char *argv[])
 {
+	// Define our variables
     BIO *certificate_bio = NULL;
     X509 *cert = NULL;
-
     X509_CINF *cert_inf = NULL;
     int valid = TRUE;
 
-    // To read in our CSV
+    // Read in our CSV and prepare a file to be written to
     FILE *in = fopen(argv[1], "r");
-    FILE *out = fopen("sample_output.csv", "w");
-    char domain[256];
-    char certificate_path[256];
-    char *path;
-    char *output;
+    FILE *out = fopen("output.csv", "w");
+    char domain[BUFFER_SIZE];
+    char certificate_path[BUFFER_SIZE];
+    char *output = safe_malloc(sizeof(char) * BUFFER_SIZE);
 
     //initialise openSSL
     OpenSSL_add_all_algorithms();
@@ -119,14 +123,13 @@ int main(int argc, const char *argv[])
     //create BIO object to read certificate
     certificate_bio = BIO_new(BIO_s_file());
 
+    // Scan the CSV for a line. If there is still text to be read, 
+    // read the line into certificate_path (the certificate to check) 
+    // and domain (the domain to check the certificate against)
     while (fscanf(in, "%30[^ ,\n\t],%s\n", certificate_path, domain) > 0) {
-	    //Read certificate into BIO
-	    path = (char *)safe_malloc(sizeof(char) 
-	    	* (strlen(certificate_path) + strlen(TEST_DIR)));
-	    sprintf(path, "%s%s", TEST_DIR, certificate_path);
-		PRINT_LINE;
-	    printf(GRE "Read in: %s vs %s\n" RES, path, domain);
-	    if (!(BIO_read_filename(certificate_bio, path)))
+	    // Read certificate into BIO
+    	// Note: this is taken from the Assignment 2 sample code
+	    if (!(BIO_read_filename(certificate_bio, certificate_path)))
 	    {
 	        fprintf(stderr, "Error in reading cert BIO filename\n");
 	        exit(EXIT_FAILURE);
@@ -136,13 +139,8 @@ int main(int argc, const char *argv[])
 	        fprintf(stderr, "Error in loading certificate\n");
 	        exit(EXIT_FAILURE);
 	    }
-
-	    //cert contains the x509 certificate and can be used to analyse the certificate
-	    
-	    //*********************
-	    // Example code of accessing certificate values
-	    //*********************
-
+	    // Here we check our certificate for the constraints as specified
+	    // in the spec.
     	valid = TRUE;
 	    cert_inf = cert->cert_info;
 
@@ -163,7 +161,7 @@ int main(int argc, const char *argv[])
 	    	valid = FALSE;
 	    }
 
-	    // Check for correct key usage
+	    // Check for correct key usage (Basic Constraints and TLS)
 	    if (!check_basic_constraints(cert)) {
 	    	valid = FALSE;
 	    }
@@ -171,27 +169,20 @@ int main(int argc, const char *argv[])
 	    	valid = FALSE;
 	    }
 
-	    if(valid) {
-	    	printf(MAG "\nThis certificate is valid!\n\n" RES);
-	    }
-	    else {
-	    	printf(RED "\nThis certificate is not valid.\n\n" RES);
-	    }
+	    // Malloc the string for output.csv
+		output = (char *)safe_malloc(sizeof(char) 
+					* (strlen(certificate_path)+strlen(domain)+SUFFIX_SIZE));
 
-		output = (char *)safe_malloc(sizeof(char) * (strlen(certificate_path)+strlen(domain)+4));
-
+		// Print our output to output.csv
 		sprintf(output, "%s,%s,%d\n", certificate_path, domain, valid);
 	    fprintf(out, "%s", output);
 
-	    memset(domain, 0, 256);
-	    memset(certificate_path, 0, 256);
+	    // Reset our strings
+	    memset(domain, 0, BUFFER_SIZE);
+	    memset(certificate_path, 0, BUFFER_SIZE);
 	}
 
-    //*********************
-    // End of Example code
-    //*********************
-
-	free(path);
+	// Free everything and close our files.
 	free(output);
 	X509_free(cert);
 	BIO_free_all(certificate_bio);
@@ -201,8 +192,8 @@ int main(int argc, const char *argv[])
 }
 
 int check_time(X509_CINF *info) {
-
-	printf("Checking date...\n");
+	// This method checks if a certificate is still valid according to
+	// the "after" and "before" times specified on the certificate
 	// Define our variables
 	const ASN1_TIME *valid_from;
 	const ASN1_TIME *valid_to;
@@ -213,118 +204,92 @@ int check_time(X509_CINF *info) {
 	valid_from = info->validity->notBefore;
 	valid_to = info->validity->notAfter;
 
- 	// Delete this after
-	ASN1_TIME *current_time;
-	time_t t;
-	t = time(NULL);
-	current_time = ASN1_TIME_adj(NULL, t, 0, 0);
-	BIO *b;
-	b = BIO_new_fp(stdout, BIO_NOCLOSE);
-	printf(CYA "Valid From: " RES);
-	ASN1_TIME_print(b, valid_from);
-	printf(CYA "\nCurrently: " RES);
-	ASN1_TIME_print(b, current_time);
-	printf(CYA "\nValid To: " RES);
-	ASN1_TIME_print(b, valid_to);
-	printf("\n");
-	BIO_free(b);
-
 	// Check if we are past the issue date
+	// Note: When NULL is passed into ASN1_TIME_diff it will use the 
+	// 		computer's current time
  	if (!ASN1_TIME_diff(&diff_day, &diff_sec, valid_from, NULL)) {
-        fprintf(stderr, "Error comparing validity dates in certificate.\n");
         exit(EXIT_FAILURE);
  	}
  	if (diff_day < 0 || diff_sec < 0) {
- 		printf(RED "This certificate's notbefore date is not valid\n" RES);
  		valid = FALSE;
  	}
 
  	// Check if we are before the due date
  	if (!ASN1_TIME_diff(&diff_day, &diff_sec, NULL, valid_to)) {
-        fprintf(stderr, "Error comparing validity dates in certificate.\n");
         exit(EXIT_FAILURE);
  	}
  	if (diff_day < 0 || diff_sec < 0) {
- 		printf(RED "This certificate's notafter date is not valid\n" RES);
  		valid = FALSE;
  	}
 
-	printf(GRE "This certificate's date is valid!\n\n" RES);
 	return valid;
 }
 
 
 int check_subject(X509 *cert, char* domain) {
+	// This function checks if the subject domain is valid
+	// Get our subject
 	X509_NAME *subject_issuer = NULL;
     subject_issuer = X509_get_subject_name(cert);
+    char *domain_cpy = strdup(domain);
 
+    // Define some valiues
     ASN1_STRING *subject_domain;
     char *subject_domain_str = safe_malloc(sizeof(char) * strlen(domain));
 	X509_NAME_ENTRY *e;
 
-	printf("Checking subject domain...\n");
+	// Now get our domain to check against
 	e = X509_NAME_get_entry(subject_issuer, 5);
 	subject_domain = X509_NAME_ENTRY_get_data(e);
-	ASN1_STRING_print_ex_fp(stdout, subject_domain, 1);
-	printf("\n");
 
+	// Convert the ASN1 String into a regular string and check the domain
 	subject_domain_str = (char *)ASN1_STRING_data(subject_domain);
-	if (contains_wildcard(subject_domain_str)) {
-		return wildcard_match(subject_domain_str, domain);
+	return compare_domain(subject_domain_str, domain_cpy);
+}
+
+int compare_domain(char* cert_domain, char* domain) {
+	// This function takes two domains and checks if they match
+
+	// First check for wildcards, otherwise, just compare the strings
+	if (contains_wildcard(cert_domain)) {
+		return wildcard_match(cert_domain, domain);
 	}
 	else {
-		if (strcmp(subject_domain_str, domain) != 0) {
-			printf(RED "%s and %s are not the same!\n\n" RES, subject_domain_str, domain);
+		if (strcmp(cert_domain, domain) != 0) {
 			return FALSE;
 		}
 		else{
-			printf(GRE "%s and %s are the same!\n\n" RES, subject_domain_str, domain);
 			return TRUE;
 		}
-	}	
+	}
 }
 
 int check_domains(char* alt_names, char* domain) {
-
-	printf(CYA "Checking domains %s\n", alt_names);
-
-	const char s[5] = "DNS:";
+	// This function checks if a series of SAN domains are valid
+	// Define our variables
 	char *alt_names_split;
-	char *test_domains[256];
+	char *test_domains[BUFFER_SIZE];
 	char *test_domain;
 	int alt_names_len = 0;
 	int valid = FALSE;
 
-	/* get the first token */
-	alt_names_split = strtok(alt_names, "DNS:");
+	// Use strtok, get our first SAN
+	alt_names_split = strtok(alt_names, DNS_SEPARATOR);
 
-	/* walk through other tokens */
+	// Append all SANs to an array for checking
 	while(alt_names_split != NULL) {
 		
 		test_domains[alt_names_len] = strdup(alt_names_split);
-		printf("Strtok %d: %s\n", alt_names_len, alt_names_split);
-		alt_names_split = strtok(NULL, s);
+		alt_names_split = strtok(NULL, DNS_SEPARATOR);
 		alt_names_len++;
 	}
 
+	// Iterate through all domains and check if they are valid
+	// If one is valid, stop checking for further domains and return
 	for (int i = 0; i < alt_names_len && valid == FALSE; i++) {
 		test_domain = remove_comma(test_domains[i]);
 
-		printf("Domain %d: %s\n", i, test_domain);
-
-		if (contains_wildcard(test_domain)) {
-			valid = wildcard_match(test_domain, domain);
-		}
-		else {
-			if (strcmp(test_domain, domain) != 0) {
-				printf(RED "%s and %s are not the same!\n" RES, test_domain, domain);
-				valid = FALSE;
-			}
-			else{
-				printf(GRE "%s and %s are the same!\n" RES, test_domain, domain);
-				valid = TRUE;
-			}
-		}
+		compare_domain(test_domain, domain);
 
 	}
 
@@ -333,12 +298,18 @@ int check_domains(char* alt_names, char* domain) {
 }
 
 char *remove_comma(char *str) {
-	printf("Removing comma of %s...\n", str);
+	// This function simply removes the end comma from a domain (in the SAN
+	// format)
 	char *cpy_str = safe_malloc(sizeof(char)*strlen(str));
 	char *new_str = safe_malloc(sizeof(char)*strlen(str));
 	int new_str_len = 0;
 
+	// Make a new copy of the string
+	// Note: This was done to prevent strange behaviour with strtok
 	strcpy(cpy_str, str);
+
+	// Iterate through the new string and add all characters that are not c
+	// commas or spaces
 	for (int i = 0; i < strlen(cpy_str); i++) {
 		if (cpy_str[i] != COMMA && cpy_str[i] != SPACE) {
 			new_str[new_str_len] = cpy_str[i];
@@ -352,204 +323,161 @@ char *remove_comma(char *str) {
 
 int contains_wildcard(char* domain) {
 	// This function checks if the domain has a wildcard inside
-	printf("Checking %s for wildcards...\n", domain);
+	// Iterate through the first part of the domain.
+	// If it is a wildcard charcter, then this is a wildcard domain
+
+	// Note: As specified here en.wikipedia.org/wiki/Wildcard_certificate
+	// 		A wildcard character not in the first label is illegal, as such
+	// 		do not check further than the first part of the domain
 	for (int i = 0; i < strlen(domain) && domain[i] != LABEL_SEPARATOR; i++) {
 		if (domain[i] == WILDCARD) {
-			printf(GRE "Wildcard found!\n" RES);
 			return TRUE;
 		}
 	}
-	printf(RED "No wildcards, continue checking domains\n" RES);
 	return FALSE;
 }
 
 int wildcard_match(char* wildcard_domain, char* domain) {
 	// This function matches a wildcard domain against a normal domain
-	printf("Matching wildcard...\n");
-	const char s[2] = ".";
-	char *domain1 = strdup(wildcard_domain);
-	char *domain2 = strdup(domain);
+	char *wildcard_domains[BUFFER_SIZE];
+	char *check_domains[BUFFER_SIZE];
 	char *wildcard_split;
 	int wildcard_size = 0;
 	char *domain_split;
 	int domain_size = 0;
 
-	/* get the first token */
-	wildcard_split = strtok(domain1, s);
+	// Start strtok for wildcard domain
+	wildcard_split = strtok(wildcard_domain, DOT_STR);
 
-	/* walk through other tokens */
+	// We'll walk through each part of the label and add it to an array
+	// for later analysis 
 	while(wildcard_split != NULL) {
-		printf("Wildcard Checking %d: %s\n", wildcard_size, wildcard_split);
-		wildcard_split = strtok(NULL, s);
+		wildcard_domains[wildcard_size] = strdup(wildcard_split);
+		wildcard_split = strtok(NULL, DOT_STR);
 		wildcard_size++;
 	}
-	/* get the first token */
-	domain_split = strtok(domain2, s);
 
-	/* walk through other tokens */
+	// Repeat the same as above with the domain we are checking against
+	domain_split = strtok(domain, DOT_STR);
 	while(domain_split != NULL) {
-		printf("Domain Checking %d: %s\n", domain_size, domain_split);
-		domain_split = strtok(NULL, s);
+		check_domains[domain_size] = strdup(domain_split);
+		domain_split = strtok(NULL, DOT_STR);
 		domain_size++;
 	}
 
+	// If the two domains do not have the same number of labels then something
+	// is wrong
 	if (wildcard_size != domain_size) {
-		printf(RED "This Wildcard %s does not match %s\n" RES, wildcard_domain, domain);
 		return FALSE;
 	}
-	printf(GRE "This Wildcard %s matches %s!\n" RES, wildcard_domain, domain);
-	return TRUE;
 
-	// for (int sector = 0; sector < wildcard_size; sector++) {
-	// 	int wild_count = 0;
-	// 	for (int chr = 0; chr < strlen(wildcard_split[sector]); chr++) {
-	// 		if (wildcard_split[sector][chr]) {
-	// 			wild_count++;
-	// 		}
-	// 		if ((wildcard_split[sector][chr] != domain_split[sector][chr]) &&
-	// 			(wild_count < 1) || wild_count > 1){
-	// 			return FALSE;
-	// 		}
-	// 	}
-	// }
-	// return TRUE;
+	// Iterate through the first part of the label 
+	// If they do not match up to the wildcard then return a false
+	for (int chr = 0; chr < strlen(wildcard_domains[START_DOMAIN]); chr++) {
+		if (wildcard_domains[START_DOMAIN][chr] != WILDCARD &&
+			wildcard_domains[START_DOMAIN][chr] != 
+			check_domains[START_DOMAIN][chr]) {
+			return FALSE;
+		}
+	}
+
+	// Then check the remaining labels if they match
+	for (int sector = 1; sector < wildcard_size; sector++) {
+		if (strcmp(wildcard_domains[sector], check_domains[sector]) != 0) {
+			return FALSE;
+		}
+	}
+	return TRUE;
 
 }
 
 int check_SAN(X509 *cert, char* domain) {
-	// This function checks if the domain name is valid
-
-	printf(CYA "Checking SAN names...\n" RES);
+	// This function checks if the subject alternative names contain
+	// a valid domain
     int valid = TRUE;
     int ext_index = 0;
+    char *domain_cpy = strdup(domain);
 
-    // Check if any SANs exist. If they do, check each domain.
+    // Check if any SANs exist. If they do, check each domain
     ext_index = X509_get_ext_by_NID(cert, NID_subject_alt_name, -1);
-    printf("Index for SAN: %d\n", ext_index);
     if (ext_index < 0) {
-    	printf(YEL "No SANs to check, checking subject...\n" RES);
     	return FALSE;
     }
 
-    // Otherwise, get our SANs
-    X509_EXTENSION *ex = X509_get_ext(cert, X509_get_ext_by_NID(cert, NID_subject_alt_name, -1));
-    ASN1_OBJECT *obj = X509_EXTENSION_get_object(ex);
-    char buff[1024];
-    OBJ_obj2txt(buff, 1024, obj, 0);
-    
-    // Check we have the correct extention
-    if (strcmp(buff, SAN) != 0) {
-    	printf(RED "Incorrect extension given.\n" RES);
-    	return FALSE;
-    }
-
-    // Get our extension value
-    BUF_MEM *bptr = NULL;
-    char *buf = NULL;
-
-    BIO *bio = BIO_new(BIO_s_mem());
-    if (!X509V3_EXT_print(bio, ex, 0, 0))
-    {
-        fprintf(stderr, "Error in reading extensions");
-    }
-
-    BIO_flush(bio);
-    BIO_get_mem_ptr(bio, &bptr);
-
-    //bptr->data is not NULL terminated - add null character
-    buf = (char *)malloc((bptr->length + 1) * sizeof(char));
-    memcpy(buf, bptr->data, bptr->length);
-    buf[bptr->length] = '\0';
+    char *subject_alt_names = get_ext_string(cert, NID_subject_alt_name);
 
     //Parse our SANs and check each domain
-    valid = check_domains(buf, domain);
-    
-    BIO_free_all(bio);
-    free(buf);
+    valid = check_domains(subject_alt_names, domain_cpy);
 
     return valid;
 }
 
 int check_RSA_length(X509 *cert) {
-
-	printf(CYA "Checking if the length of the RSA key is at least 2048...\n" RES);
-
+	// This function checks if the key has a valid RSA key length
+	// Get our key and find the number of bytes
 	EVP_PKEY * public_key = X509_get_pubkey(cert);
 	RSA *rsa_key = EVP_PKEY_get1_RSA(public_key);
-	int key_length = RSA_size(rsa_key)*BITS;
+	int key_length = RSA_size(rsa_key) * BITS;
+
+	// Free our key, we already have the length
 	RSA_free(rsa_key);
 
 	if (key_length < RSA_LENGTH) {
-		printf(RED "This certificate's RSA length %d is too short!\n" RES, key_length);
 		return FALSE;
 	}
-	printf(GRE "This certificate's RSA length %d is sufficient!\n" RES, key_length);
 
 	return TRUE;
 }
 
 int check_basic_constraints(X509 *cert) {
+	// This checks for basic constraints in our certificate
 	int has_basic_constraints = FALSE;
 
-    // Check for basic constraints
-    X509_EXTENSION *ex = X509_get_ext(cert, X509_get_ext_by_NID(cert, NID_basic_constraints, -1));
-    ASN1_OBJECT *obj = X509_EXTENSION_get_object(ex);
-    char buff[1024];
-    OBJ_obj2txt(buff, 1024, obj, 0);
-    printf("%s\n", buff);
-    // Check we have the correct extention
-    if (strcmp(buff, BASICCONSTRAINTS) != 0) {
-    	printf(RED "Incorrect extension given.\n" RES);
-    	return FALSE;
-    }
+    // Get our basic constraints and then prune the "CA:" part of the string
+    char *basic_constraint = safe_malloc(sizeof(char) * CA_LEN);
+    basic_constraint = get_ext_string(cert, 
+    							NID_basic_constraints) + CA_PRUNE;
 
-    // Get our extension value
-    BUF_MEM *bptr = NULL;
-    char *buf = NULL;
-
-    BIO *bio = BIO_new(BIO_s_mem());
-    if (!X509V3_EXT_print(bio, ex, 0, 0))
-    {
-        fprintf(stderr, "Error in reading extensions");
-    }
-
-    BIO_flush(bio);
-    BIO_get_mem_ptr(bio, &bptr);
-
-    //bptr->data is not NULL terminated - add null character
-    buf = (char *)malloc((bptr->length + 1) * sizeof(char));
-    memcpy(buf, bptr->data, bptr->length);
-    buf[bptr->length] = '\0';
-
-    // Check whether basic_constraints is true
-    char *basic_constraint = buf + CA_PRUNE;
-
-    printf("%s\n", basic_constraint);
+    // Then, check whether basic_constraints is false
     if (strcmp(basic_constraint, FALSE_STR) == 0) {
-    	printf(GRE "This certificate has basic constraints!\n" RES);
     	has_basic_constraints = TRUE;
     }
     else {
-    	printf(RED "This certificate does not have basic constraints!\n" RES);
     	has_basic_constraints = FALSE;
     }
     return has_basic_constraints;
 }
 
 int check_TLS(X509 *cert) {
-	int has_TLS = FALSE;
+	// This function checks if the certificate has TLS server authentication
 
-    // Check for basic constraints
-    X509_EXTENSION *ex = X509_get_ext(cert, X509_get_ext_by_NID(cert, NID_ext_key_usage, -1));
+	char *TLS_attr = safe_malloc(sizeof(char) * BUFFER_SIZE);
+	
+	// Get our key usage values
+	TLS_attr = get_ext_string(cert, NID_ext_key_usage);
+    char *server_auth;
+    // Strtok through our values (separated by commas) and return whether
+    // TLS exists or not.
+    server_auth = strtok(TLS_attr, COMMA_STR);
+    while (server_auth != NULL) {
+	    if (strcmp(server_auth, TLS) == 0) {
+	    	return TRUE;
+	    }
+	    server_auth = strtok(NULL, COMMA_STR);
+	}
+
+    return FALSE;
+}
+
+char *get_ext_string(X509 *cert, int nid) {
+    // This function gets an extension in string for with a provided nid
+	// Note: This is adapted from the sample Assignment2 repository provided
+	// for the assignment.
+    X509_EXTENSION *ex = X509_get_ext(cert, 
+    					 X509_get_ext_by_NID(cert, nid, -1));
     ASN1_OBJECT *obj = X509_EXTENSION_get_object(ex);
     char buff[1024];
     OBJ_obj2txt(buff, 1024, obj, 0);
-    printf("%s\n", buff);
-    // Check we have the correct extention
-    if (strcmp(buff, EXTUSAGE) != 0) {
-    	printf(RED "Incorrect extension given.\n" RES);
-    	return FALSE;
-    }
 
     // Get our extension value
     BUF_MEM *bptr = NULL;
@@ -565,27 +493,10 @@ int check_TLS(X509 *cert) {
     BIO_get_mem_ptr(bio, &bptr);
 
     //bptr->data is not NULL terminated - add null character
-    buf = (char *)malloc((bptr->length + 1) * sizeof(char));
+    buf = (char *)safe_malloc((bptr->length + 1) * sizeof(char));
     memcpy(buf, bptr->data, bptr->length);
     buf[bptr->length] = '\0';
 
-    printf("%s\n", buf);
-
-    const char s[2] = ",";
-    char *server_auth;
-
-    server_auth = strtok(buf, s);
-    while (server_auth != NULL) {
-	    if (strcmp(buf, TLS) == 0) {
-	    	printf(GRE "This certificate has TLS!\n" RES);
-	    	has_TLS = TRUE;
-	    }
-	    else {
-	    	printf(RED "This certificate does not have TLS!\n" RES);
-	    	has_TLS = FALSE;
-	    }
-	    server_auth = strtok(NULL, s);
-	}
-    return has_TLS;
+    BIO_free_all(bio);
+    return buf;
 }
-

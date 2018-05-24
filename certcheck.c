@@ -431,8 +431,6 @@ int check_RSA_length(X509 *cert) {
 
 int check_basic_constraints(X509 *cert) {
 	// This checks for basic constraints in our certificate
-	int has_basic_constraints = FALSE;
-
     // Get our basic constraints and then prune the "CA:" part of the string
     char *basic_constraint = safe_malloc(sizeof(char) * CA_LEN);
     basic_constraint = get_ext_string(cert, 
@@ -440,34 +438,47 @@ int check_basic_constraints(X509 *cert) {
 
     // Then, check whether basic_constraints is false
     if (strcmp(basic_constraint, FALSE_STR) == 0) {
-    	has_basic_constraints = TRUE;
+    	return TRUE;
     }
-    else {
-    	has_basic_constraints = FALSE;
-    }
-    return has_basic_constraints;
+    return FALSE;
 }
 
 int check_TLS(X509 *cert) {
 	// This function checks if the certificate has TLS server authentication
 
 	char *TLS_attr = safe_malloc(sizeof(char) * BUFFER_SIZE);
-	
+	char *authentications[BUFFER_SIZE];
+	int authentications_size = 0;
 	// Get our key usage values
 	TLS_attr = get_ext_string(cert, NID_ext_key_usage);
     char *server_auth;
-    // Strtok through our values (separated by commas) and return whether
-    // TLS exists or not.
+
+    // Strtok through our values (separated by commas) and add them to an array
     server_auth = strtok(TLS_attr, COMMA_STR);
+    // Check the first value for whether it has TLS or not
+    if (strcmp(server_auth, TLS) == 0) {
+    	return TRUE;
+    }
+
+    // If there are more values, then add them to an array of strings
+    // for checking
     while (server_auth != NULL) {
-	    if (strcmp(server_auth, TLS) == 0) {
+	    authentications[authentications_size] = strdup(server_auth);
+	    authentications_size++;
+	    server_auth = strtok(NULL, COMMA_STR);
+	}
+
+	// Check 'em
+	// Check if TLS exists
+	for (int i = 1; i < authentications_size; i++) {
+	    if (strcmp(authentications[i] + 1, TLS) == 0) {
 	    	return TRUE;
 	    }
-	    server_auth = strtok(NULL, COMMA_STR);
 	}
 
     return FALSE;
 }
+
 
 char *get_ext_string(X509 *cert, int nid) {
     // This function gets an extension in string for with a provided nid
